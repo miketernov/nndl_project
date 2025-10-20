@@ -131,10 +131,52 @@ function runEDA() {
   dtypeHTML += "</table></div>";
 
   // === Определяем числовые признаки (исключаем customerID) ===
-  const numericCols = columns.filter(
-    key => key.toLowerCase() !== "customerid" &&
-      rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key] !== "" && r[key] !== null)
-  );
+  // === Определяем числовые признаки (исключаем customerID) ===
+let numericCols = columns.filter(
+  key => key.toLowerCase() !== "customerid" &&
+    rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key] !== "" && r[key] !== null)
+);
+
+// === Находим топ-5 категориальных признаков, связанных с Churn ===
+const catCols = columns.filter(c => !numericCols.includes(c) && c.toLowerCase() !== "churn");
+
+let catCorrelations = [];
+
+catCols.forEach(col => {
+  const vals = rawTrain.map(r => r[col]);
+  const uniqueVals = [...new Set(vals.map(v => String(v).toLowerCase()))];
+  if (uniqueVals.length === 2) {
+    // Бинарные категориальные фичи
+    const mapping = {};
+    mapping[uniqueVals[0]] = 0;
+    mapping[uniqueVals[1]] = 1;
+    const x = vals.map(v => mapping[String(v).toLowerCase()]);
+    const y = rawTrain.map(r => parseFloat(r["Churn"]));
+    const valid = x.map((v, i) => [v, y[i]]).filter(([a, b]) => !isNaN(a) && !isNaN(b));
+    if (valid.length > 5) {
+      const xs = valid.map(p => p[0]);
+      const ys = valid.map(p => p[1]);
+      const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+      const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+      const num = xs.map((v, i) => (v - mx) * (ys[i] - my)).reduce((a, b) => a + b, 0);
+      const den = Math.sqrt(
+        xs.map(v => (v - mx) ** 2).reduce((a, b) => a + b, 0) *
+        ys.map(v => (v - my) ** 2).reduce((a, b) => a + b, 0)
+      );
+      const corr = den ? num / den : 0;
+      catCorrelations.push({ col, corr });
+    }
+  }
+});
+
+// сортируем по силе связи и выбираем топ-5
+catCorrelations.sort((a, b) => Math.abs(b.corr) - Math.abs(a.corr));
+const topCats = catCorrelations.slice(0, 5).map(c => c.col);
+
+// добавляем их к числовым признакам
+numericCols = [...numericCols, ...topCats];
+
+console.log("Top categorical correlations with Churn:", catCorrelations.slice(0, 5));
 
   // === Пропуски ===
   let missHTML = "<h3>Missing Values</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Missing %</th></tr>";
