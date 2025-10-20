@@ -73,6 +73,29 @@ async function loadData(){
   }catch(e){console.error(e);info(`❌ ${e.message}`);}
 }
 
+function computeCorrelation(rows, cols) {
+  const corr = {};
+  cols.forEach(a => {
+    corr[a] = {};
+    cols.forEach(b => {
+      const x = rows.map(r => parseFloat(r[a])).filter(v => !isNaN(v));
+      const y = rows.map(r => parseFloat(r[b])).filter(v => !isNaN(v));
+      const n = Math.min(x.length, y.length);
+      if (n === 0) corr[a][b] = 0;
+      else {
+        const mx = x.reduce((a,b)=>a+b,0)/n;
+        const my = y.reduce((a,b)=>a+b,0)/n;
+        const num = x.map((v,i)=>(v-mx)*(y[i]-my)).reduce((a,b)=>a+b,0);
+        const den = Math.sqrt(x.map(v=>(v-mx)**2).reduce((a,b)=>a+b,0) *
+                              y.map(v=>(v-my)**2).reduce((a,b)=>a+b,0));
+        corr[a][b] = den ? num/den : 0;
+      }
+    });
+  });
+  return corr;
+}
+
+
 // === EDA ===
 function runEDA() {
   if (!rawTrain || rawTrain.length === 0) {
