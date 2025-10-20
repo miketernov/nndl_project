@@ -115,63 +115,66 @@ function buildStackedChurnChart(rows, colName, ctx){
 
 
 // Две гистограммы (Yes/No) поверх друг друга для числового признака
-function buildDualHistogram(rows, colName, ctx, bins=20){
-  const valsNo  = rows.filter(r=>r.Churn===0).map(r=> Number(r[colName])).filter(v=> Number.isFinite(v));
-  const valsYes = rows.filter(r=>r.Churn===1).map(r=> Number(r[colName])).filter(v=> Number.isFinite(v));
+function buildDualHistogram(rows, colName, ctx, bins = 20) {
+  const valsNo  = rows.filter(r => r.Churn === 0).map(r => Number(r[colName])).filter(Number.isFinite);
+  const valsYes = rows.filter(r => r.Churn === 1).map(r => Number(r[colName])).filter(Number.isFinite);
   if (!valsNo.length && !valsYes.length) return;
 
   const minV = Math.min(...valsNo, ...valsYes);
   const maxV = Math.max(...valsNo, ...valsYes);
   const step = (maxV - minV) / bins || 1;
 
-  function hist(values){
+  const hist = (values) => {
     const counts = new Array(bins).fill(0);
-    values.forEach(v=>{
-      let idx = Math.floor((v - minV)/step);
-      if (idx < 0) idx = 0; if (idx >= bins) idx = bins-1;
+    values.forEach(v => {
+      let idx = Math.floor((v - minV) / step);
+      if (idx < 0) idx = 0;
+      if (idx >= bins) idx = bins - 1;
       counts[idx]++;
     });
     return counts;
-  }
+  };
+
   const hNo  = hist(valsNo);
   const hYes = hist(valsYes);
 
-  const labels = Array.from({length:bins}, (_,i)=>{
-    const a = minV + i*step, b = a + step;
+  const labels = Array.from({ length: bins }, (_, i) => {
+    const a = minV + i * step, b = a + step;
     return `${a.toFixed(0)}–${b.toFixed(0)}`;
   });
 
-  new Chart(ctx,{
-    type:'bar',
-    data:{
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
       labels,
-      datasets:[
-        {label:'No',  data:hNo,  backgroundColor:'rgba(34,197,94,0.55)'},
-        {label:'Yes', data:hYes, backgroundColor:'rgba(239,68,68,0.55)'}
+      datasets: [
+        { label: 'No',  data: hNo,  backgroundColor: 'rgba(34,197,94,0.55)' },
+        { label: 'Yes', data: hYes, backgroundColor: 'rgba(239,68,68,0.55)' }
       ]
     },
-    options:{
-      maintainAspectRatio:false,
-      layout:{padding:{bottom:10,top:10}},
-      plugins:{
-        legend:{position:'top', labels:{color:'#e5e7eb', boxWidth:14}},
-        title:{display:false}
+    options: {
+      maintainAspectRatio: false,
+      layout: { padding: { bottom: 10, top: 10 } },
+      plugins: {
+        legend: { position: 'top', labels: { color: '#e5e7eb', boxWidth: 14 } },
+        title: { display: false }
       },
-      scales:{
-        x:{
-          ticks:{
-            color:'#e5e7eb',
-            autoSkip:true,
-            maxRotation:45,
-            minRotation:45,
-            callback:(v,i,vals)=> i%2===0 ? this.getLabelForValue(v) : '' // сокращаем подписи
+      scales: {
+        x: {
+          ticks: {
+            color: '#e5e7eb',
+            autoSkip: true,
+            maxRotation: 45,
+            minRotation: 45,
+            // показываем подпись только на каждом втором тике
+            callback: (value, index) => (index % 2 === 0 ? labels[index] : '')
           },
-          grid:{display:false}
+          grid: { display: false }
         },
-        y:{
-          beginAtZero:true,
-          ticks:{color:'#e5e7eb'},
-          grid:{color:'rgba(148,163,184,0.15)'}
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#e5e7eb' },
+          grid: { color: 'rgba(148,163,184,0.15)' }
         }
       }
     }
