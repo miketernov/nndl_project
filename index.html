@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Telco Customer Churn — In‑Browser ML</title>
+<style>
+:root { --bg:#0f172a; --panel:#111827; --card:#1f2937; --text:#e5e7eb; --muted:#9ca3af; }
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto}
+header{padding:16px 20px;border-bottom:1px solid #222;display:flex;gap:16px;align-items:center}
+header h1{margin:0;font-size:18px;font-weight:700}
+header .badge{padding:4px 10px;background:var(--card);border-radius:999px;color:var(--muted)}
+main{display:grid;grid-template-columns:340px 1fr;min-height:calc(100vh - 60px)}
+aside{border-right:1px solid #222;padding:16px 14px;overflow:auto}
+section{padding:16px 18px;overflow:auto}
+.card{background:var(--card);border:1px solid #262d3a;border-radius:14px;padding:14px;margin:10px 0}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{cursor:pointer;border:none;padding:10px 14px;border-radius:10px;background:#0ea5e9;color:white;font-weight:600}
+.btn.secondary{background:#374151}
+.btn.ghost{background:transparent;border:1px solid #374151;color:#e5e7eb}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#0b1220;border:1px solid #283246;color:#a5b4fc;font-size:12px}
+input[type="file"]{width:100%;padding:8px;background:#0b1220;border:1px dashed #334155;border-radius:10px;color:#93c5fd}
+input, select{width:100%;padding:10px;border-radius:10px;background:#0b1220;border:1px solid #334155;color:#e5e7eb}
+table{width:100%;border-collapse:collapse}
+th, td{padding:8px;border-bottom:1px solid #2a3342;white-space:nowrap}
+th{position:sticky;top:0;background:#0b1220}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.small{font-size:12px;color:var(--muted)}
+.metric{display:flex;justify-content:space-between;padding:8px 10px;border:1px solid #2a3342;border-radius:10px;background:#0b1220}
+.divider{height:1px;background:#242a38;margin:12px 0}
+.heat td{position:relative}
+.heat td span{position:relative;z-index:2}
+.heat td::before{content:"";position:absolute;inset:0;background:var(--bgHeat,transparent);opacity:.9;border-radius:4px}
+</style>
+<!-- libs -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.13.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header>
+<h1>Telco Customer Churn — In‑Browser ML</h1>
+<span class="badge">No backend • Pure JS/HTML</span>
+</header>
+<main>
+<aside>
+<div class="card">
+<h3>1) Load Data</h3>
+<label>Upload <b>train.csv</b> (or a single preprocessed CSV)</label>
+<input id="train-file" type="file" accept=".csv" />
+<div style="height:8px"></div>
+<label>Upload <b>test.csv</b> (optional)</label>
+<input id="test-file" type="file" accept=".csv" />
+<div style="height:8px"></div>
+<div class="row">
+<button id="load-data-btn" class="btn">Load Data</button>
+<button id="btnClear" class="btn secondary">Clear</button>
+</div>
+<p class="small">If only one CSV is provided, the app will split it into train/test.</p>
+<div id="data-status" class="small"></div>
+</div>
+
+
+<div class="card">
+<h3>2) EDA Settings</h3>
+<label>Target column</label>
+<input id="targetCol" value="Churn" />
+<label>Positive class label (e.g., Yes/1)</label>
+<input id="positiveLabel" value="Yes" />
+<label>Test size (single CSV)</label>
+<input id="testSize" type="number" value="0.2" step="0.05" min="0.05" max="0.9" />
+<div class="divider"></div>
+<div class="grid-3 small">
+<div><span id="shapeTrain" class="pill">train: -</span></div>
+<div><span id="shapeTest" class="pill">test: -</span></div>
+<div><span id="churnRate" class="pill">churn: -</span></div>
+</div>
+</div>
+
+
+<div class="card">
+<h3>3) Model</h3>
+<label>Hidden units</label>
+<input id="hid" type="number" value="32"/>
+<label>Epochs</label>
+<input id="epochs" type="number" value="20"/>
+<label>Batch size</label>
+<input id="batch" type="number" value="64"/>
+<div class="row">
+<button id="create-model-btn" class="btn ghost" disabled>Create Model</button>
+<button id="train-btn" class="btn" disabled>Train</button>
+</div>
+<p class="small">Training runs fully in your browser (TensorFlow.js).</p>
+</div>
+
+
+<div class="card">
+<h3>4) Prediction</h3>
+</html>
