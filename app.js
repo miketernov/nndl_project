@@ -229,7 +229,7 @@ function runEDA(){
     });
     missHTML += "</table></div>";
 
-    // numeric summary (exclude id)
+    // numeric summary
     let numHTML = "<h3>Numeric Summary</h3><div class='scroll'><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
     const numForSummary = numericCols.filter(c=>c.toLowerCase()!=='customerid');
     numForSummary.forEach(c=>{
@@ -242,12 +242,36 @@ function runEDA(){
     });
     numHTML += "</table></div>";
 
-    // churn distribution
-    const yes = rawTrain.filter(r=> r.Churn===1).length;
+    // churn distribution (общая)
+    const yes = rawTrain.filter(r=>r.Churn===1).length;
     const no  = rawTrain.length - yes;
-    const chartBox = `
+    const churnChartBox = `
       <h3>Churn Distribution</h3>
       <div class="chartbox"><canvas id="churnChart"></canvas></div>
+    `;
+
+    // +++ НОВЫЕ ГРАФИКИ +++
+    const extraChartsHTML = `
+      <div class="grid2 mt20">
+        <div class="chartbox">
+          <h3>Churn by Contract (stacked)</h3>
+          <canvas id="contractChurnChart"></canvas>
+        </div>
+        <div class="chartbox">
+          <h3>Churn by Internet Service (stacked)</h3>
+          <canvas id="internetChurnChart"></canvas>
+        </div>
+      </div>
+      <div class="grid2 mt20">
+        <div class="chartbox">
+          <h3>Monthly Charges — distribution (Yes/No)</h3>
+          <canvas id="chargesHistChart"></canvas>
+        </div>
+        <div class="chartbox">
+          <h3>Tenure — distribution (Yes/No)</h3>
+          <canvas id="tenureHistChart"></canvas>
+        </div>
+      </div>
     `;
 
     // layout
@@ -260,15 +284,47 @@ function runEDA(){
         <div>${missHTML}</div>
         <div>${numHTML}</div>
       </div>
-      <div class="mt20">${chartBox}</div>
+      <div class="mt20">${churnChartBox}</div>
+      ${extraChartsHTML}
     `;
 
-    const ctx = byId('churnChart').getContext('2d');
-    new Chart(ctx,{
+    // --- Charts render ---
+    // 1) общий churn
+    new Chart(byId('churnChart').getContext('2d'),{
       type:'bar',
       data:{labels:['No','Yes'], datasets:[{label:'Churn Count', data:[no,yes], backgroundColor:['#22c55e','#ef4444']}]},
       options:{maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
     });
+
+    // 2) stacked: Contract
+    buildStackedChurnChart(
+      rawTrain,
+      'Contract',
+      byId('contractChurnChart').getContext('2d')
+    );
+
+    // 3) stacked: InternetService
+    buildStackedChurnChart(
+      rawTrain,
+      'InternetService',
+      byId('internetChurnChart').getContext('2d')
+    );
+
+    // 4) hist: MonthlyCharges (Yes/No)
+    buildDualHistogram(
+      rawTrain,
+      'MonthlyCharges',
+      byId('chargesHistChart').getContext('2d'),
+      20
+    );
+
+    // 5) hist: Tenure (Yes/No)
+    buildDualHistogram(
+      rawTrain,
+      'tenure',
+      byId('tenureHistChart').getContext('2d'),
+      20
+    );
 
     info('✅ EDA complete');
   }catch(e){
