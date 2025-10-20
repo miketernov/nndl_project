@@ -74,20 +74,96 @@ async function loadData(){
 }
 
 // === EDA ===
-function runEDA(){
-  const numCols=['tenure','MonthlyCharges','TotalCharges'];
-  const summary = numCols.map(c=>{
-    const vals = rawTrain.map(r=>parseFloat(r[c])).filter(v=>!isNaN(v));
-    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
-    const std=Math.sqrt(vals.map(v=>(v-mean)**2).reduce((a,b)=>a+b,0)/vals.length);
-    return `<tr><td>${c}</td><td>${mean.toFixed(2)}</td><td>${std.toFixed(2)}</td></tr>`;
-  }).join('');
-  byId('data-preview').innerHTML = headTable(rawTrain,10)+
-    `<h3>Summary</h3><table><tr><th>Feature</th><th>Mean</th><th>Std</th></tr>${summary}</table>`;
-  const yes=rawTrain.filter(r=>r.Churn===1).length,no=rawTrain.length-yes;
-  tfvis.render.barchart({name:'Churn Balance',tab:'Charts'},
-    [{x:'Yes',y:yes},{x:'No',y:no}],{xLabel:'Churn',yLabel:'Count'});
-  info('✅ EDA done (see tfjs-vis).');
+function runEDA() {
+  if (!rawTrain || rawTrain.length === 0) {
+    alert("Please load train data first!");
+    return;
+  }
+
+  info("Running EDA...");
+
+  const container = byId("data-preview");
+  container.innerHTML = "<h3>Data Preview</h3>" + headTable(rawTrain, 10);
+
+  // === Missing values ===
+  const columns = Object.keys(rawTrain[0]);
+  let missHTML = "<h3>Missing Values</h3><table><tr><th>Feature</th><th>Missing %</th></tr>";
+  columns.forEach(c => {
+    const miss = rawTrain.filter(r => r[c] === null || r[c] === "").length;
+    const pct = (miss / rawTrain.length * 100).toFixed(1);
+    missHTML += `<tr><td>${c}</td><td>${pct}%</td></tr>`;
+  });
+  missHTML += "</table>";
+
+  // === Numeric summary ===
+  const numericCols = ["tenure", "MonthlyCharges", "TotalCharges"];
+  let numHTML = "<h3>Numeric Summary</h3><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
+  numericCols.forEach(c => {
+    const vals = rawTrain.map(r => parseFloat(r[c])).filter(v => !isNaN(v));
+    if (vals.length === 0) return;
+    const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std = Math.sqrt(vals.map(v=>(v-mean)**2).reduce((a,b)=>a+b,0)/vals.length);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    numHTML += `<tr><td>${c}</td><td>${mean.toFixed(2)}</td><td>${std.toFixed(2)}</td><td>${min.toFixed(2)}</td><td>${max.toFixed(2)}</td></tr>`;
+  });
+  numHTML += "</table>";
+
+  // === Correlation matrix ===
+  const corrMatrix = computeCorrelation(rawTrain, numericCols);
+  let corrHTML = "<h3>Correlation Matrix</h3><table><tr><th></th>";
+  numericCols.forEach(c => (corrHTML += `<th>${c}</th>`));
+  corrHTML += "</tr>";
+  numericCols.forEach(a => {
+    corrHTML += `<tr><th>${a}</th>`;
+    numericCols.forEach(b => {
+      const v = corrMatrix[a][b];
+      const color = v > 0
+        ? `rgba(56,189,248,${Math.abs(v)})`
+        : `rgba(239,68,68,${Math.abs(v)})`;
+      corrHTML += `<td style="background:${color};color:#fff;text-align:center;">${v.toFixed(2)}</td>`;
+    });
+    corrHTML += "</tr>";
+  });
+  corrHTML += "</table>";
+
+  // === Charts ===
+  const yes = rawTrain.filter(r => r.Churn === 1).length;
+  const no = rawTrain.length - yes;
+  const chartHTML = `
+    <h3>Churn Distribution</h3>
+    <canvas id="churnChart" width="300" height="200"></canvas>
+  `;
+
+  // === Layout (two-column grid + below section) ===
+  container.innerHTML += `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+      <div>${corrHTML}</div>
+      <div>${missHTML}</div>
+    </div>
+    <div style="margin-top:20px;">${numHTML}</div>
+    <div style="margin-top:20px;">${chartHTML}</div>
+  `;
+
+  // Draw churn chart
+  const ctx = document.getElementById("churnChart").getContext("2d");
+  new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: ["No", "Yes"],
+      datasets: [{
+        label: "Churn Count",
+        data: [no, yes],
+        backgroundColor: ["#22c55e", "#ef4444"]
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+
+  info("✅ EDA complete");
 }
 
 // === FEATURE ENCODING ===
