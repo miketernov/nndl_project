@@ -110,15 +110,34 @@ function runEDA() {
   const container = byId("data-preview");
   container.innerHTML = "<h3>Data Preview</h3>" + headTable(rawTrain, 10);
 
-  // === Определяем все числовые признаки автоматически ===
   const sample = rawTrain[0];
-  const numericCols = Object.keys(sample).filter(
+
+  // === Определяем типы данных ===
+  const columns = Object.keys(sample);
+  const dataTypes = columns.map(col => {
+    const vals = rawTrain.map(r => r[col]);
+    const nonNull = vals.find(v => v !== null && v !== undefined && v !== "");
+    let dtype = typeof nonNull;
+    if (!isNaN(parseFloat(nonNull)) && nonNull !== "" && nonNull !== null) dtype = "number";
+    else if (["yes", "no", "male", "female"].includes(String(nonNull).toLowerCase())) dtype = "category";
+    else if (String(nonNull).length > 30) dtype = "text";
+    return { col, dtype };
+  });
+
+  let dtypeHTML = "<h3>Data Types Overview</h3><table><tr><th>Feature</th><th>Detected Type</th></tr>";
+  dataTypes.forEach(d => {
+    dtypeHTML += `<tr><td>${d.col}</td><td>${d.dtype}</td></tr>`;
+  });
+  dtypeHTML += "</table>";
+
+  // === Определяем числовые признаки ===
+  const numericCols = columns.filter(
     key => !isNaN(parseFloat(sample[key])) && sample[key] !== "" && sample[key] !== null
   );
 
   // === Пропуски ===
   let missHTML = "<h3>Missing Values</h3><table><tr><th>Feature</th><th>Missing %</th></tr>";
-  Object.keys(sample).forEach(c => {
+  columns.forEach(c => {
     const miss = rawTrain.filter(r => r[c] === null || r[c] === "").length;
     const pct = (miss / rawTrain.length * 100).toFixed(1);
     missHTML += `<tr><td>${c}</td><td>${pct}%</td></tr>`;
@@ -147,7 +166,7 @@ function runEDA() {
   });
   corrHTML += "</table>";
 
-  // === Summary ===
+  // === Numeric summary ===
   let numHTML = "<h3>Numeric Summary</h3><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
   numericCols.forEach(c => {
     const vals = rawTrain.map(r => parseFloat(r[c])).filter(v => !isNaN(v));
@@ -170,8 +189,9 @@ function runEDA() {
     </div>
   `;
 
-  // === Layout ===
+  // === Итоговый layout ===
   container.innerHTML += `
+    <div style="margin-top:20px;">${dtypeHTML}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
       <div>${corrHTML}</div>
       <div>${missHTML}</div>
@@ -182,7 +202,7 @@ function runEDA() {
     </div>
   `;
 
-  // === Chart ===
+  // === График ===
   const ctx = document.getElementById("churnChart").getContext("2d");
   new Chart(ctx, {
     type: "bar",
@@ -201,6 +221,7 @@ function runEDA() {
     }
   });
 }
+
 
 // === FEATURE ENCODING ===
 function preprocess(rows){
