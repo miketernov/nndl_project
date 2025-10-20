@@ -65,12 +65,19 @@
     <div id="data-preview"></div>
   </section>
 
-  <section>
-    <h2>3. Model Creation & Training</h2>
-    <button id="create-model-btn" disabled>Create Model</button>
-    <button id="train-btn" disabled>Train Model</button>
-    <div id="training-status" class="small"></div>
-  </section>
+<section>
+  <h2>3. Model Creation & Training</h2>
+  <button id="create-model-btn" disabled>Create Model</button>
+  <button id="train-btn" disabled>Train Model</button>
+  <div id="training-status" class="small"></div>
+
+  <!-- 👇 ВОТ ЭТО добавляет графики обучения прямо под секцией -->
+  <div id="training-charts" style="margin-top:20px;">
+    <canvas id="lossChart" width="500" height="250"></canvas>
+    <canvas id="accuracyChart" width="500" height="250" style="margin-top:20px;"></canvas>
+  </div>
+</section>
+
 
   <section>
     <h2>4. Evaluation & Metrics</h2>
