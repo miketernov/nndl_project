@@ -152,12 +152,20 @@ async function loadData(){
   if(!trainFile){ alert('Upload train.csv or a single CSV.'); return; }
 
   info('Loading CSV…');
-  const trainText = await readFile(trainFile);
-  let trainArr = parseCSV(trainText).map(normalizeTelcoRow);
+ const trainText = await readFile(trainFile);
+ let trainArr = Papa.parse(trainText, {
+  header: true,
+  dynamicTyping: false,
+  skipEmptyLines: true
+ }).data.map(normalizeTelcoRow);
 
   if(testFile){
-    const testText = await readFile(testFile);
-    rawTest = parseCSV(testText).map(normalizeTelcoRow);
+  const testText = await readFile(testFile);
+   rawTest = Papa.parse(testText, {
+  header: true,
+  dynamicTyping: false,
+  skipEmptyLines: true
+   }).data.map(normalizeTelcoRow);
     rawTrain = trainArr;
   } else {
     // single CSV → shuffle & split
