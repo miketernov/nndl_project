@@ -78,20 +78,20 @@ function computeCorrelation(rows, cols) {
   cols.forEach(a => {
     corr[a] = {};
     cols.forEach(b => {
-      const x = rows.map(r => parseFloat(r[a])).filter(v => !isNaN(v));
-      const y = rows.map(r => parseFloat(r[b])).filter(v => !isNaN(v));
-      const n = Math.min(x.length, y.length);
-      if (n === 0) corr[a][b] = NaN;
-      else {
-        const mx = x.reduce((s, v) => s + v, 0) / n;
-        const my = y.reduce((s, v) => s + v, 0) / n;
-        const num = x.map((v, i) => (v - mx) * (y[i] - my)).reduce((a, b) => a + b, 0);
-        const den = Math.sqrt(
-          x.map(v => (v - mx) ** 2).reduce((a, b) => a + b, 0) *
-          y.map(v => (v - my) ** 2).reduce((a, b) => a + b, 0)
-        );
-        corr[a][b] = den ? num / den : NaN;
-      }
+      const pairs = rows
+        .map(r => [parseFloat(r[a]), parseFloat(r[b])])
+        .filter(([x, y]) => !isNaN(x) && !isNaN(y));
+      if (pairs.length === 0) { corr[a][b] = 0; return; }
+      const xs = pairs.map(p => p[0]);
+      const ys = pairs.map(p => p[1]);
+      const mx = xs.reduce((s, v) => s + v, 0) / xs.length;
+      const my = ys.reduce((s, v) => s + v, 0) / ys.length;
+      const num = xs.map((v, i) => (v - mx) * (ys[i] - my)).reduce((a, b) => a + b, 0);
+      const den = Math.sqrt(
+        xs.map(v => (v - mx) ** 2).reduce((a, b) => a + b, 0) *
+        ys.map(v => (v - my) ** 2).reduce((a, b) => a + b, 0)
+      );
+      corr[a][b] = den ? num / den : 0;
     });
   });
   return corr;
@@ -111,9 +111,9 @@ function runEDA() {
   container.innerHTML = "<h3>Data Preview</h3>" + headTable(rawTrain, 10);
 
   const sample = rawTrain[0];
+  const columns = Object.keys(sample);
 
   // === Определяем типы данных ===
-  const columns = Object.keys(sample);
   const dataTypes = columns.map(col => {
     const vals = rawTrain.map(r => r[col]);
     const nonNull = vals.find(v => v !== null && v !== undefined && v !== "");
@@ -124,50 +124,47 @@ function runEDA() {
     return { col, dtype };
   });
 
-  let dtypeHTML = "<h3>Data Types Overview</h3><table><tr><th>Feature</th><th>Detected Type</th></tr>";
+  let dtypeHTML = "<h3>Data Types Overview</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Detected Type</th></tr>";
   dataTypes.forEach(d => {
     dtypeHTML += `<tr><td>${d.col}</td><td>${d.dtype}</td></tr>`;
   });
-  dtypeHTML += "</table>";
+  dtypeHTML += "</table></div>";
 
   // === Определяем числовые признаки ===
   const numericCols = columns.filter(
-    key => !isNaN(parseFloat(sample[key])) && sample[key] !== "" && sample[key] !== null
+    key => rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key] !== "" && r[key] !== null)
   );
 
   // === Пропуски ===
-  let missHTML = "<h3>Missing Values</h3><table><tr><th>Feature</th><th>Missing %</th></tr>";
+  let missHTML = "<h3>Missing Values</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Missing %</th></tr>";
   columns.forEach(c => {
     const miss = rawTrain.filter(r => r[c] === null || r[c] === "").length;
     const pct = (miss / rawTrain.length * 100).toFixed(1);
     missHTML += `<tr><td>${c}</td><td>${pct}%</td></tr>`;
   });
-  missHTML += "</table>";
+  missHTML += "</table></div>";
 
   // === Корреляционная матрица ===
   const corrMatrix = computeCorrelation(rawTrain, numericCols);
-  let corrHTML = "<h3>Correlation Matrix</h3><table><tr><th></th>";
+  let corrHTML = "<h3>Correlation Matrix</h3><div style='overflow-x:auto;'><table><tr><th></th>";
   numericCols.forEach(c => (corrHTML += `<th>${c}</th>`));
   corrHTML += "</tr>";
   numericCols.forEach(a => {
     corrHTML += `<tr><th>${a}</th>`;
     numericCols.forEach(b => {
-      const v = corrMatrix[a][b];
-      const color = isNaN(v)
-        ? "transparent"
-        : v > 0
-          ? `rgba(56,189,248,${Math.abs(v)})`
-          : `rgba(239,68,68,${Math.abs(v)})`;
-      corrHTML += `<td style="background:${color};color:#fff;text-align:center;">${
-        isNaN(v) ? "" : v.toFixed(2)
-      }</td>`;
+      let v = corrMatrix[a][b];
+      if (isNaN(v)) v = 0;
+      const color = v >= 0
+        ? `rgba(56,189,248,${Math.abs(v)})`
+        : `rgba(239,68,68,${Math.abs(v)})`;
+      corrHTML += `<td style="background:${color};color:#fff;text-align:center;">${v.toFixed(2)}</td>`;
     });
     corrHTML += "</tr>";
   });
-  corrHTML += "</table>";
+  corrHTML += "</table></div>";
 
   // === Numeric summary ===
-  let numHTML = "<h3>Numeric Summary</h3><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
+  let numHTML = "<h3>Numeric Summary</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
   numericCols.forEach(c => {
     const vals = rawTrain.map(r => parseFloat(r[c])).filter(v => !isNaN(v));
     if (vals.length === 0) return;
@@ -177,9 +174,9 @@ function runEDA() {
     const max = Math.max(...vals);
     numHTML += `<tr><td>${c}</td><td>${mean.toFixed(2)}</td><td>${std.toFixed(2)}</td><td>${min.toFixed(2)}</td><td>${max.toFixed(2)}</td></tr>`;
   });
-  numHTML += "</table>";
+  numHTML += "</table></div>";
 
-  // === Churn distribution ===
+  // === Churn Distribution ===
   const yes = rawTrain.filter(r => r.Churn === 1).length;
   const no = rawTrain.length - yes;
   const chartHTML = `
@@ -189,17 +186,17 @@ function runEDA() {
     </div>
   `;
 
-  // === Итоговый layout ===
+  // === Макет EDA (сетка 2×2) ===
   container.innerHTML += `
-    <div style="margin-top:20px;">${dtypeHTML}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+      <div>${dtypeHTML}</div>
       <div>${corrHTML}</div>
-      <div>${missHTML}</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+      <div>${missHTML}</div>
       <div>${numHTML}</div>
-      <div>${chartHTML}</div>
     </div>
+    <div style="margin-top:20px;">${chartHTML}</div>
   `;
 
   // === График ===
@@ -221,6 +218,7 @@ function runEDA() {
     }
   });
 }
+
 
 
 // === FEATURE ENCODING ===
