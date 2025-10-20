@@ -61,6 +61,89 @@ function normalizeRow(o){
   return r;
 }
 
+
+// Стековая диаграмма: доли Churn Yes/No по категориям колонки (Contract, InternetService)
+function buildStackedChurnChart(rows, colName, ctx){
+  const groups = {}; // {level:{yes:count, no:count}}
+  rows.forEach(r=>{
+    const level = (r[colName]==null || r[colName]==='') ? 'NA' : String(r[colName]);
+    if (!groups[level]) groups[level] = {yes:0, no:0};
+    if (r.Churn===1) groups[level].yes++; else groups[level].no++;
+  });
+  const labels = Object.keys(groups);
+  const yesPct = labels.map(l=>{
+    const g = groups[l]; const tot = g.yes+g.no || 1;
+    return Math.round((g.yes/tot)*1000)/10; // %
+  });
+  const noPct = labels.map(l=>{
+    const g = groups[l]; const tot = g.yes+g.no || 1;
+    return Math.round((g.no/tot)*1000)/10;
+  });
+
+  new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'No',  data:noPct, backgroundColor:'#22c55e', stack:'churn'},
+        {label:'Yes', data:yesPct, backgroundColor:'#ef4444', stack:'churn'}
+      ]
+    },
+    options:{
+      maintainAspectRatio:false,
+      plugins:{legend:{position:'top'}},
+      scales:{
+        x:{stacked:true},
+        y:{stacked:true, beginAtZero:true, ticks:{callback:(v)=> v+'%'}}
+      }
+    }
+  });
+}
+
+// Две гистограммы (Yes/No) поверх друг друга для числового признака
+function buildDualHistogram(rows, colName, ctx, bins=20){
+  const valsNo  = rows.filter(r=>r.Churn===0).map(r=> Number(r[colName])).filter(v=> Number.isFinite(v));
+  const valsYes = rows.filter(r=>r.Churn===1).map(r=> Number(r[colName])).filter(v=> Number.isFinite(v));
+  if (!valsNo.length && !valsYes.length) return;
+
+  const minV = Math.min(...valsNo, ...valsYes);
+  const maxV = Math.max(...valsNo, ...valsYes);
+  const step = (maxV - minV) / bins || 1;
+
+  function hist(values){
+    const counts = new Array(bins).fill(0);
+    values.forEach(v=>{
+      let idx = Math.floor((v - minV)/step);
+      if (idx < 0) idx = 0; if (idx >= bins) idx = bins-1;
+      counts[idx]++;
+    });
+    return counts;
+  }
+  const hNo  = hist(valsNo);
+  const hYes = hist(valsYes);
+
+  const labels = Array.from({length:bins}, (_,i)=>{
+    const a = minV + i*step, b = a + step;
+    return `${a.toFixed(0)}–${b.toFixed(0)}`;
+  });
+
+  new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'No',  data:hNo,  backgroundColor:'rgba(34,197,94,0.55)'},
+        {label:'Yes', data:hYes, backgroundColor:'rgba(239,68,68,0.55)'}
+      ]
+    },
+    options:{
+      maintainAspectRatio:false,
+      plugins:{legend:{position:'top'}},
+      scales:{y:{beginAtZero:true}}
+    }
+  });
+}
+
 function headTable(rows, limit=10){
   if (!rows || !rows.length) return '<p>No data</p>';
   const cols = Object.keys(rows[0]);
