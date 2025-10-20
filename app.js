@@ -187,8 +187,19 @@ console.log("Top categorical correlations with Churn:", catCorrelations.slice(0,
   });
   missHTML += "</table></div>";
 
-  // === Корреляционная матрица ===
-  const corrMatrix = computeCorrelation(rawTrain, numericCols);
+  const processedRows = rawTrain.map(row => {
+  const r = { ...row };
+  Object.keys(r).forEach(k => {
+    const v = String(r[k]).toLowerCase();
+    if (v === "yes" || v === "male" || v === "true") r[k] = 1;
+    else if (v === "no" || v === "female" || v === "false") r[k] = 0;
+  });
+  return r;
+});
+
+// Используем processedRows вместо rawTrain для корреляции
+const corrMatrix = computeCorrelation(processedRows, numericCols);
+
   let corrHTML = "<h3>Correlation Matrix</h3><div style='overflow-x:auto;'><table><tr><th></th>";
   numericCols.forEach(c => (corrHTML += `<th>${c}</th>`));
   corrHTML += "</tr>";
