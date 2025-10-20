@@ -130,9 +130,10 @@ function runEDA() {
   });
   dtypeHTML += "</table></div>";
 
-  // === Определяем числовые признаки ===
+  // === Определяем числовые признаки (исключаем customerID) ===
   const numericCols = columns.filter(
-    key => rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key] !== "" && r[key] !== null)
+    key => key.toLowerCase() !== "customerid" &&
+      rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key] !== "" && r[key] !== null)
   );
 
   // === Пропуски ===
@@ -163,7 +164,7 @@ function runEDA() {
   });
   corrHTML += "</table></div>";
 
-  // === Numeric summary ===
+  // === Numeric summary (только по числовым без customerID) ===
   let numHTML = "<h3>Numeric Summary</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
   numericCols.forEach(c => {
     const vals = rawTrain.map(r => parseFloat(r[c])).filter(v => !isNaN(v));
@@ -186,7 +187,7 @@ function runEDA() {
     </div>
   `;
 
-  // === Макет EDA (сетка 2×2) ===
+  // === Макет EDA ===
   container.innerHTML += `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
       <div>${dtypeHTML}</div>
