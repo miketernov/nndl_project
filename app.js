@@ -1,462 +1,472 @@
-//---------------------------------------------------------------
-// Telco Customer Churn - Full TensorFlow.js App
-//---------------------------------------------------------------
+/*************************************************
+ * Telco Customer Churn — full in-browser pipeline
+ * EDA + preprocessing + model + training + metrics
+ *************************************************/
 
+// --------- Globals ---------
 let rawTrain = null, rawTest = null;
-let model = null, valData = null, valLabels = null;
-let validationPreds = null, testPreds = null;
 const byId = id => document.getElementById(id);
 const info = msg => byId('data-status').innerHTML = msg;
 
-// === FILE READING ===
-function readFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsText(file);
+// Schema
+const NUM_COLS = ['tenure','MonthlyCharges','TotalCharges'];
+const BIN_COLS = [
+  'Partner','Dependents','PhoneService','PaperlessBilling',
+  'MultipleLines','OnlineSecurity','OnlineBackup','DeviceProtection',
+  'TechSupport','StreamingTV','StreamingMovies','SeniorCitizen'
+];
+const OH_COLS = ['Contract','InternetService','PaymentMethod','gender'];
+const TARGET = 'Churn';
+const IDCOL  = 'customerID';
+
+// Preprocess holder
+const prep = {
+  numMedian:{}, numMean:{}, numStd:{},
+  ohLevels:{},
+  trainX:null, trainY:null, valX:null, valY:null,
+  testX:null, testIDs:[]
+};
+
+let model = null;
+let valPreds = null;
+let rocChart = null;
+
+// --------- Utils ---------
+function readFile(file){
+  return new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = () => rej(new Error('Failed to read file'));
+    r.readAsText(file);
   });
 }
 
-// === DATA CLEANING ===
-function normalizeTelcoRow(o) {
-  if (!o) return {};
-  const r = { ...o };
-  for (let k in r) if (typeof r[k] === 'string') r[k] = r[k].trim();
-  r.TotalCharges = r.TotalCharges === '' ? null : parseFloat(r.TotalCharges);
-  r.tenure = parseFloat(r.tenure);
-  r.MonthlyCharges = parseFloat(r.MonthlyCharges);
-  const yesNo = ['Partner','Dependents','PhoneService','PaperlessBilling',
-    'MultipleLines','OnlineSecurity','OnlineBackup','DeviceProtection',
-    'TechSupport','StreamingTV','StreamingMovies'];
-  yesNo.forEach(c=>{
-    if (r[c]) {
-      const val = r[c].toLowerCase();
-      r[c] = val.includes('yes') ? 'Yes':'No';
-    }
+function normalizeRow(o){
+  // trim all
+  const r = {...o};
+  Object.keys(r).forEach(k => { if (typeof r[k] === 'string') r[k] = r[k].trim(); });
+  // Churn → 0/1
+  if (r.Churn != null) r.Churn = String(r.Churn).toLowerCase()==='yes'?1:0;
+  // SeniorCitizen to Yes/No style for BIN_COLS
+  if (r.SeniorCitizen != null) r.SeniorCitizen = String(r.SeniorCitizen)==='1'?'Yes':'No';
+  // numeric columns to number (may be NaN here — we impute later)
+  ['tenure','MonthlyCharges','TotalCharges'].forEach(c=>{
+    const n = Number(r[c]); r[c] = Number.isFinite(n)? n : null;
   });
-  if (r.SeniorCitizen!=null)
-    r.SeniorCitizen = String(r.SeniorCitizen)==='1'?'Yes':'No';
-  if (r.Churn!=null)
-    r.Churn = r.Churn.toLowerCase()==='yes'?1:0;
   return r;
 }
 
-// === PREVIEW TABLE ===
 function headTable(rows, limit=10){
   if (!rows || !rows.length) return '<p>No data</p>';
   const cols = Object.keys(rows[0]);
-  let html = '<div style="overflow:auto;max-height:380px"><table><thead><tr>';
-  html += cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  let html = '<div class="scroll"><table><thead><tr>';
+  html += cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead><tbody>';
   rows.slice(0,limit).forEach(r=>{
     html += '<tr>'+cols.map(c=>`<td>${r[c]??''}</td>`).join('')+'</tr>';
   });
-  html += '</tbody></table></div>'; return html;
+  html += '</tbody></table></div>';
+  return html;
 }
 
-// === LOAD DATA ===
+function toNum(v){ const n = Number(v); return Number.isFinite(n)? n : null; }
+function ynTo01(v){
+  const s = String(v).toLowerCase();
+  if (['yes','y','true','1','male'].includes(s)) return 1;
+  if (['no','n','false','0','female'].includes(s)) return 0;
+  return null;
+}
+
+// --------- Load Data ---------
 async function loadData(){
   const trainFile = byId('train-file').files[0];
-  const testFile = byId('test-file').files[0];
-  if(!trainFile||!testFile){alert('Upload BOTH train and test files');return;}
+  const testFile  = byId('test-file').files[0];
+  if (!trainFile || !testFile){ alert('Upload BOTH train.csv and test.csv'); return; }
+
   info('Loading CSV files…');
   try{
-    const trainParsed = Papa.parse(await readFile(trainFile),{header:true,skipEmptyLines:true});
-    const testParsed  = Papa.parse(await readFile(testFile),{header:true,skipEmptyLines:true});
-    rawTrain = trainParsed.data.map(normalizeTelcoRow);
-    rawTest  = testParsed.data.map(normalizeTelcoRow);
+    const trainParsed = Papa.parse(await readFile(trainFile), {header:true,skipEmptyLines:true});
+    const testParsed  = Papa.parse(await readFile(testFile),  {header:true,skipEmptyLines:true});
+    rawTrain = trainParsed.data.map(normalizeRow);
+    rawTest  = testParsed.data.map(normalizeRow);
+
     const n = rawTrain.length;
     const churnRate = (100*rawTrain.filter(r=>r.Churn===1).length/n).toFixed(2);
-    info(`✅ Loaded Train:${n}, Test:${rawTest.length}, Churn:${churnRate}%`);
+    info(`✅ Loaded: Train ${n}, Test ${rawTest.length} | Churn ${churnRate}%`);
     byId('data-preview').innerHTML = headTable(rawTrain,10);
-    byId('create-model-btn').disabled=false;
-  }catch(e){console.error(e);info(`❌ ${e.message}`);}
+    byId('eda-btn').disabled = false;
+    byId('create-model-btn').disabled = false;
+  }catch(err){ console.error(err); info(`❌ ${err.message}`); }
 }
 
-function computeCorrelation(rows, cols) {
+// --------- EDA ---------
+function computeCorrelation(rows, cols){
   const corr = {};
-  cols.forEach(a => {
+  cols.forEach(a=>{
     corr[a] = {};
-    cols.forEach(b => {
+    cols.forEach(b=>{
       const pairs = rows
         .map(r => [parseFloat(r[a]), parseFloat(r[b])])
-        .filter(([x, y]) => !isNaN(x) && !isNaN(y));
-      if (pairs.length === 0) { corr[a][b] = 0; return; }
-      const xs = pairs.map(p => p[0]);
-      const ys = pairs.map(p => p[1]);
-      const mx = xs.reduce((s, v) => s + v, 0) / xs.length;
-      const my = ys.reduce((s, v) => s + v, 0) / ys.length;
-      const num = xs.map((v, i) => (v - mx) * (ys[i] - my)).reduce((a, b) => a + b, 0);
+        .filter(([x,y]) => !isNaN(x) && !isNaN(y));
+      if (pairs.length===0){ corr[a][b]=0; return; }
+      const xs = pairs.map(p=>p[0]), ys = pairs.map(p=>p[1]);
+      const mx = xs.reduce((s,v)=>s+v,0)/xs.length;
+      const my = ys.reduce((s,v)=>s+v,0)/ys.length;
+      const num = xs.map((v,i)=>(v-mx)*(ys[i]-my)).reduce((a,b)=>a+b,0);
       const den = Math.sqrt(
-        xs.map(v => (v - mx) ** 2).reduce((a, b) => a + b, 0) *
-        ys.map(v => (v - my) ** 2).reduce((a, b) => a + b, 0)
+        xs.map(v=>(v-mx)**2).reduce((a,b)=>a+b,0)*
+        ys.map(v=>(v-my)**2).reduce((a,b)=>a+b,0)
       );
-      corr[a][b] = den ? num / den : 0;
+      corr[a][b] = den ? num/den : 0;
     });
   });
   return corr;
 }
 
+function runEDA(){
+  if (!rawTrain){ alert('Load data first'); return; }
 
-// === EDA ===
-function runEDA() {
-  if (!rawTrain || rawTrain.length === 0) {
-    alert("Please load train data first!");
-    return;
-  }
-
-  info("Running EDA...");
-
-  const container = byId("data-preview");
-  container.innerHTML = "<h3>Data Preview</h3>" + headTable(rawTrain, 10);
+  const container = byId('data-preview');
+  container.innerHTML = "<h3>Data Preview</h3>" + headTable(rawTrain,10);
 
   const sample = rawTrain[0];
   const columns = Object.keys(sample);
 
-  // === Определяем типы данных ===
-  const dataTypes = columns.map(col => {
-    const vals = rawTrain.map(r => r[col]);
-    const nonNull = vals.find(v => v !== null && v !== undefined && v !== "");
+  // Types table
+  const dataTypes = columns.map(col=>{
+    const vals = rawTrain.map(r=>r[col]);
+    const nonNull = vals.find(v=>v!==null && v!==undefined && v!=='');
     let dtype = typeof nonNull;
-    if (!isNaN(parseFloat(nonNull)) && nonNull !== "" && nonNull !== null) dtype = "number";
-    else if (["yes", "no", "male", "female"].includes(String(nonNull).toLowerCase())) dtype = "category";
-    else if (String(nonNull).length > 30) dtype = "text";
-    return { col, dtype };
+    if (!isNaN(parseFloat(nonNull)) && nonNull!=='' && nonNull!==null) dtype='number';
+    else if (['yes','no','male','female'].includes(String(nonNull).toLowerCase())) dtype='category';
+    else if (String(nonNull||'').length>30) dtype='text';
+    return {col, dtype};
   });
-
-  let dtypeHTML = "<h3>Data Types Overview</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Detected Type</th></tr>";
-  dataTypes.forEach(d => {
-    dtypeHTML += `<tr><td>${d.col}</td><td>${d.dtype}</td></tr>`;
-  });
+  let dtypeHTML = "<h3>Data Types Overview</h3><div class='scroll'><table><tr><th>Feature</th><th>Detected Type</th></tr>";
+  dataTypes.forEach(d=> dtypeHTML += `<tr><td>${d.col}</td><td>${d.dtype}</td></tr>`);
   dtypeHTML += "</table></div>";
 
-  // === Определяем числовые признаки (исключаем customerID) ===
-  // === Определяем числовые признаки (исключаем customerID) ===
-let numericCols = columns.filter(
-  key => key.toLowerCase() !== "customerid" &&
-    rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key] !== "" && r[key] !== null)
-);
+  // numeric cols (exclude IDs)
+  let numericCols = columns.filter(
+    key => key.toLowerCase()!=='customerid' &&
+      rawTrain.some(r => !isNaN(parseFloat(r[key])) && r[key]!=='' && r[key]!==null)
+  );
 
-// === Находим топ-5 категориальных признаков, связанных с Churn ===
-const catCols = columns.filter(c => !numericCols.includes(c) && c.toLowerCase() !== "churn");
-
-let catCorrelations = [];
-
-catCols.forEach(col => {
-  const vals = rawTrain.map(r => r[col]);
-  const uniqueVals = [...new Set(vals.map(v => String(v).toLowerCase()))];
-  if (uniqueVals.length === 2) {
-    // Бинарные категориальные фичи
-    const mapping = {};
-    mapping[uniqueVals[0]] = 0;
-    mapping[uniqueVals[1]] = 1;
-    const x = vals.map(v => mapping[String(v).toLowerCase()]);
-    const y = rawTrain.map(r => parseFloat(r["Churn"]));
-    const valid = x.map((v, i) => [v, y[i]]).filter(([a, b]) => !isNaN(a) && !isNaN(b));
-    if (valid.length > 5) {
-      const xs = valid.map(p => p[0]);
-      const ys = valid.map(p => p[1]);
-      const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
-      const my = ys.reduce((a, b) => a + b, 0) / ys.length;
-      const num = xs.map((v, i) => (v - mx) * (ys[i] - my)).reduce((a, b) => a + b, 0);
-      const den = Math.sqrt(
-        xs.map(v => (v - mx) ** 2).reduce((a, b) => a + b, 0) *
-        ys.map(v => (v - my) ** 2).reduce((a, b) => a + b, 0)
-      );
-      const corr = den ? num / den : 0;
-      catCorrelations.push({ col, corr });
+  // --- find top-5 binary categorical correlated with Churn ---
+  const catCols = columns.filter(c => !numericCols.includes(c) && c.toLowerCase()!=='churn');
+  let catCorr = [];
+  catCols.forEach(col=>{
+    const vals = rawTrain.map(r=>r[col]);
+    const uniq = [...new Set(vals.map(v=>String(v).toLowerCase()))];
+    if (uniq.length===2){
+      const map = {}; map[uniq[0]]=0; map[uniq[1]]=1;
+      const x = vals.map(v=> map[String(v).toLowerCase()]);
+      const y = rawTrain.map(r=> Number(r['Churn']));
+      const valid = x.map((v,i)=>[v,y[i]]).filter(([a,b])=> !isNaN(a)&&!isNaN(b));
+      if (valid.length>5){
+        const xs = valid.map(p=>p[0]), ys = valid.map(p=>p[1]);
+        const mx = xs.reduce((a,b)=>a+b,0)/xs.length;
+        const my = ys.reduce((a,b)=>a+b,0)/ys.length;
+        const num = xs.map((v,i)=>(v-mx)*(ys[i]-my)).reduce((a,b)=>a+b,0);
+        const den = Math.sqrt(
+          xs.map(v=>(v-mx)**2).reduce((a,b)=>a+b,0) *
+          ys.map(v=>(v-my)**2).reduce((a,b)=>a+b,0)
+        );
+        const corr = den? num/den : 0;
+        catCorr.push({col, corr});
+      }
     }
-  }
-});
-
-// сортируем по силе связи и выбираем топ-5
-catCorrelations.sort((a, b) => Math.abs(b.corr) - Math.abs(a.corr));
-const topCats = catCorrelations.slice(0, 5).map(c => c.col);
-
-// добавляем их к числовым признакам
-numericCols = [...numericCols, ...topCats];
-
-console.log("Top categorical correlations with Churn:", catCorrelations.slice(0, 5));
-
-  // === Пропуски ===
-  let missHTML = "<h3>Missing Values</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Missing %</th></tr>";
-  columns.forEach(c => {
-    const miss = rawTrain.filter(r => r[c] === null || r[c] === "").length;
-    const pct = (miss / rawTrain.length * 100).toFixed(1);
-    missHTML += `<tr><td>${c}</td><td>${pct}%</td></tr>`;
   });
-  missHTML += "</table></div>";
+  catCorr.sort((a,b)=> Math.abs(b.corr)-Math.abs(a.corr));
+  const topCats = catCorr.slice(0,5).map(o=>o.col);
+  numericCols = [...numericCols, ...topCats];
 
-  const processedRows = rawTrain.map(row => {
-  const r = { ...row };
-  Object.keys(r).forEach(k => {
-    const v = String(r[k]).toLowerCase();
-    if (v === "yes" || v === "male" || v === "true") r[k] = 1;
-    else if (v === "no" || v === "female" || v === "false") r[k] = 0;
+  // temporary binary mapping for correlation
+  const processed = rawTrain.map(row=>{
+    const r = {...row};
+    Object.keys(r).forEach(k=>{
+      const v = String(r[k]).toLowerCase();
+      if (['yes','male','true','1'].includes(v)) r[k]=1;
+      else if (['no','female','false','0'].includes(v)) r[k]=0;
+    });
+    return r;
   });
-  return r;
-});
 
-// Используем processedRows вместо rawTrain для корреляции
-const corrMatrix = computeCorrelation(processedRows, numericCols);
-
-  let corrHTML = "<h3>Correlation Matrix</h3><div style='overflow-x:auto;'><table><tr><th></th>";
-  numericCols.forEach(c => (corrHTML += `<th>${c}</th>`));
+  // correlation table
+  const corrM = computeCorrelation(processed, numericCols);
+  let corrHTML = "<h3>Correlation Matrix</h3><div class='scroll'><table><tr><th></th>";
+  numericCols.forEach(c=> corrHTML += `<th>${c}</th>`);
   corrHTML += "</tr>";
-  numericCols.forEach(a => {
+  numericCols.forEach(a=>{
     corrHTML += `<tr><th>${a}</th>`;
-    numericCols.forEach(b => {
-      let v = corrMatrix[a][b];
-      if (isNaN(v)) v = 0;
-      const color = v >= 0
-        ? `rgba(56,189,248,${Math.abs(v)})`
-        : `rgba(239,68,68,${Math.abs(v)})`;
+    numericCols.forEach(b=>{
+      let v = corrM[a][b]; if (isNaN(v)) v=0;
+      const color = v>=0? `rgba(56,189,248,${Math.abs(v)})` : `rgba(239,68,68,${Math.abs(v)})`;
       corrHTML += `<td style="background:${color};color:#fff;text-align:center;">${v.toFixed(2)}</td>`;
     });
     corrHTML += "</tr>";
   });
   corrHTML += "</table></div>";
 
-  // === Numeric summary (только по числовым без customerID) ===
-  let numHTML = "<h3>Numeric Summary</h3><div style='overflow-x:auto;'><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
-  numericCols.forEach(c => {
-    const vals = rawTrain.map(r => parseFloat(r[c])).filter(v => !isNaN(v));
-    if (vals.length === 0) return;
-    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const std = Math.sqrt(vals.map(v => (v - mean) ** 2).reduce((a, b) => a + b, 0) / vals.length);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
+  // missing values
+  let missHTML = "<h3>Missing Values</h3><div class='scroll'><table><tr><th>Feature</th><th>Missing %</th></tr>";
+  columns.forEach(c=>{
+    const miss = rawTrain.filter(r => r[c]===null || r[c]==='').length;
+    const pct = (miss/rawTrain.length*100).toFixed(1);
+    missHTML += `<tr><td>${c}</td><td>${pct}%</td></tr>`;
+  });
+  missHTML += "</table></div>";
+
+  // numeric summary (exclude id)
+  let numHTML = "<h3>Numeric Summary</h3><div class='scroll'><table><tr><th>Feature</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>";
+  const numForSummary = numericCols.filter(c=>c.toLowerCase()!=='customerid');
+  numForSummary.forEach(c=>{
+    const vals = rawTrain.map(r=>parseFloat(r[c])).filter(v=>!isNaN(v));
+    if (!vals.length) return;
+    const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std = Math.sqrt(vals.map(v=>(v-mean)**2).reduce((a,b)=>a+b,0)/vals.length);
+    const min = Math.min(...vals), max = Math.max(...vals);
     numHTML += `<tr><td>${c}</td><td>${mean.toFixed(2)}</td><td>${std.toFixed(2)}</td><td>${min.toFixed(2)}</td><td>${max.toFixed(2)}</td></tr>`;
   });
   numHTML += "</table></div>";
 
-  // === Churn Distribution ===
-  const yes = rawTrain.filter(r => r.Churn === 1).length;
-  const no = rawTrain.length - yes;
-  const chartHTML = `
+  // churn distribution
+  const yes = rawTrain.filter(r=>r.Churn===1).length;
+  const no  = rawTrain.length - yes;
+  const chartBox = `
     <h3>Churn Distribution</h3>
-    <div style="max-width:400px;height:250px;">
-      <canvas id="churnChart"></canvas>
-    </div>
+    <div class="chartbox"><canvas id="churnChart"></canvas></div>
   `;
 
-  // === Макет EDA ===
+  // layout
   container.innerHTML += `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+    <div class="grid2 mt20">
       <div>${dtypeHTML}</div>
       <div>${corrHTML}</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+    <div class="grid2 mt20">
       <div>${missHTML}</div>
       <div>${numHTML}</div>
     </div>
-    <div style="margin-top:20px;">${chartHTML}</div>
+    <div class="mt20">${chartBox}</div>
   `;
 
-  // === График ===
-  const ctx = document.getElementById("churnChart").getContext("2d");
-  new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: ["No", "Yes"],
-      datasets: [{
-        label: "Churn Count",
-        data: [no, yes],
-        backgroundColor: ["#22c55e", "#ef4444"]
-      }]
-    },
-    options: {
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
+  const ctx = document.getElementById('churnChart').getContext('2d');
+  new Chart(ctx,{
+    type:'bar',
+    data:{labels:['No','Yes'], datasets:[{label:'Churn Count', data:[no,yes], backgroundColor:['#22c55e','#ef4444']}]},
+    options:{maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
+  });
+}
+
+// --------- Preprocessing for model ---------
+function fitPreprocess(trainRows){
+  // numeric stats
+  NUM_COLS.forEach(c=>{
+    const vals = trainRows.map(r=> toNum(r[c])).filter(v=>v!=null);
+    const sorted = [...vals].sort((a,b)=>a-b);
+    const mid = Math.floor(sorted.length/2);
+    const median = sorted.length? (sorted.length%2? sorted[mid] : (sorted[mid-1]+sorted[mid])/2) : 0;
+    const mean = vals.length? vals.reduce((s,x)=>s+x,0)/vals.length : 0;
+    const std  = Math.sqrt(vals.reduce((s,x)=> s+(x-mean)**2,0)/(vals.length||1)) || 1;
+    prep.numMedian[c]=median; prep.numMean[c]=mean; prep.numStd[c]=std;
+  });
+  // one-hot levels from train
+  OH_COLS.forEach(c=>{
+    const levels = Array.from(new Set(trainRows.map(r=> (r[c]==null?'NA':String(r[c])) )));
+    prep.ohLevels[c]=levels;
+  });
+}
+
+function transformRow(r){
+  const nums = NUM_COLS.map(c=>{
+    let v = toNum(r[c]); if (v==null) v = prep.numMedian[c];
+    return (v - prep.numMean[c]) / prep.numStd[c];
+  });
+  const bins = BIN_COLS.map(c=>{
+    const v = ynTo01(r[c]); return v==null ? 0 : v;
+  });
+  const oh = OH_COLS.flatMap(c=>{
+    const levels = prep.ohLevels[c];
+    const v = r[c]==null? 'NA' : String(r[c]);
+    return levels.map(l => (l===v?1:0));
+  });
+  return nums.concat(bins, oh);
+}
+
+function makeTensors(rawTrain, rawTest){
+  fitPreprocess(rawTrain);
+  const X = rawTrain.map(transformRow);
+  const y = rawTrain.map(r=> Number(r[TARGET]));
+  const cut = Math.floor(X.length*0.8);
+  prep.trainX = tf.tensor2d(X.slice(0,cut));
+  prep.trainY = tf.tensor1d(y.slice(0,cut));
+  prep.valX   = tf.tensor2d(X.slice(cut));
+  prep.valY   = tf.tensor1d(y.slice(cut));
+  prep.testIDs= rawTest.map(r=> r[IDCOL]);
+  prep.testX  = tf.tensor2d(rawTest.map(transformRow));
+  return prep.trainX.shape[1];
+}
+
+// --------- Model ---------
+function buildModel(inputDim){
+  const m = tf.sequential();
+  m.add(tf.layers.dense({units:128, activation:'relu', inputShape:[inputDim]}));
+  m.add(tf.layers.batchNormalization());
+  m.add(tf.layers.dropout({rate:0.3}));
+  m.add(tf.layers.dense({units:64, activation:'relu'}));
+  m.add(tf.layers.dropout({rate:0.2}));
+  m.add(tf.layers.dense({units:1, activation:'sigmoid'}));
+  m.compile({ optimizer: tf.train.adam(0.001), loss:'binaryCrossentropy', metrics:['accuracy'] });
+  return m;
+}
+
+function computeClassWeights(y){
+  const n=y.length, pos=y.reduce((s,v)=>s+(v===1?1:0),0), neg=n-pos;
+  return {0: n/(2*(neg||1)), 1: n/(2*(pos||1))};
+}
+
+// --------- Create & Train ---------
+function onCreateModel(){
+  if(!rawTrain||!rawTest){ alert('Load data first'); return; }
+  const inputDim = makeTensors(rawTrain, rawTest);
+  model = buildModel(inputDim);
+  byId('train-btn').disabled = false;
+  byId('training-status').innerText = `Model ready. Input dim: ${inputDim}. Params: ${model.countParams()}`;
+}
+
+async function onTrain(){
+  if(!model){ alert('Create model first'); return; }
+  const status = byId('training-status');
+
+  // Charts
+  const lossChart = new Chart(byId('lossChart').getContext('2d'),{
+    type:'line', data:{labels:[], datasets:[{label:'Loss', data:[], borderColor:'#ef4444', tension:0.2}]},
+    options:{maintainAspectRatio:false, scales:{y:{beginAtZero:true}}}
+  });
+  const accChart = new Chart(byId('accuracyChart').getContext('2d'),{
+    type:'line', data:{labels:[], datasets:[{label:'Accuracy', data:[], borderColor:'#22c55e', tension:0.2}]},
+    options:{maintainAspectRatio:false, scales:{y:{beginAtZero:true, max:1}}}
+  });
+
+  const E=40, B=64, cw = computeClassWeights(prep.trainY.arraySync());
+  let best=Infinity, patience=6, wait=0;
+
+  await model.fit(prep.trainX, prep.trainY, {
+    epochs:E, batchSize:B, validationData:[prep.valX, prep.valY], classWeight:cw,
+    callbacks:{
+      onEpochEnd: async (ep, logs)=>{
+        lossChart.data.labels.push(ep+1);
+        lossChart.data.datasets[0].data.push(logs.loss);
+        lossChart.update();
+        accChart.data.labels.push(ep+1);
+        accChart.data.datasets[0].data.push(logs.acc);
+        accChart.update();
+        status.innerText = `Epoch ${ep+1}/${E} | loss ${logs.loss.toFixed(4)} acc ${logs.acc.toFixed(3)} | vloss ${logs.val_loss.toFixed(4)} vacc ${logs.val_acc.toFixed(3)}`;
+        if (logs.val_loss < best-1e-4){ best=logs.val_loss; wait=0; } else if (++wait>=patience){ status.innerText += ' | Early stopped'; this.modelStop=true; }
+        await tf.nextFrame();
+      }
     }
   });
+
+  valPreds = model.predict(prep.valX);
+  byId('threshold-slider').disabled = false;
+  byId('threshold-slider').value = 0.35;
+  byId('threshold-value').textContent = '0.35';
+  updateMetrics();
+
+  byId('predict-btn').disabled = false;
 }
 
+// --------- Metrics & ROC ---------
+function updateMetrics(){
+  if (!valPreds) return;
+  const thr = parseFloat(byId('threshold-slider').value);
+  byId('threshold-value').textContent = thr.toFixed(2);
 
+  const yPred = valPreds.arraySync().map(v=> Array.isArray(v)? v[0]:v);
+  const yTrue = prep.valY.arraySync();
 
-// === FEATURE ENCODING ===
-function preprocess(rows){
-  const num=['tenure','MonthlyCharges','TotalCharges'];
-  const cat=['Contract','InternetService','PaymentMethod','gender','SeniorCitizen','Partner','Dependents','PaperlessBilling'];
-  const cats={};
-  cat.forEach(c=>cats[c]=[...new Set(rows.map(r=>r[c]))]);
-  const features=rows.map(r=>{
-    const nums=num.map(f=>parseFloat(r[f]||0));
-    const enc=[];
-    cat.forEach(c=>{
-      cats[c].forEach(v=>enc.push(r[c]===v?1:0));
-    });
-    return nums.concat(enc);
-  });
-  const X=tf.tensor2d(features);
-  const y=rows.map(r=>r.Churn); 
-  return {X,y:tf.tensor1d(y)};
-}
-
-// === CREATE MODEL ===
-function createModel(){
-  const inputSize = preprocess(rawTrain).X.shape[1];
-  model=tf.sequential();
-  model.add(tf.layers.dense({inputShape:[inputSize],units:32,activation:'relu'}));
-  model.add(tf.layers.dropout({rate:0.3}));
-  model.add(tf.layers.dense({units:1,activation:'sigmoid'}));
-  model.compile({optimizer:'adam',loss:'binaryCrossentropy',metrics:['accuracy']});
-  info('✅ Model created');
-  byId('train-btn').disabled=false;
-}
-
-// === TRAIN MODEL ===
-async function trainModel() {
-  if (!model || !preprocessedTrainData) {
-    alert("Please create model first.");
-    return;
-  }
-
-  const statusDiv = document.getElementById("training-status");
-  statusDiv.innerHTML = "Training model...";
-
-  const lossCtx = document.getElementById("lossChart").getContext("2d");
-  const accCtx = document.getElementById("accuracyChart").getContext("2d");
-
-  // Создаём графики заранее
-  const lossChart = new Chart(lossCtx, {
-    type: "line",
-    data: { labels: [], datasets: [{ label: "Loss", data: [], borderColor: "#ef4444", tension: 0.2 }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
-  });
-
-  const accChart = new Chart(accCtx, {
-    type: "line",
-    data: { labels: [], datasets: [{ label: "Accuracy", data: [], borderColor: "#22c55e", tension: 0.2 }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1 } } }
-  });
-
-  try {
-    // Split training data into train/validation (80/20)
-    const splitIndex = Math.floor(preprocessedTrainData.features.shape[0] * 0.8);
-
-    const trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
-    const trainLabels = preprocessedTrainData.labels.slice(0, splitIndex);
-
-    const valFeatures = preprocessedTrainData.features.slice(splitIndex);
-    const valLabels = preprocessedTrainData.labels.slice(splitIndex);
-
-    // Store validation data for evaluation
-    validationData = valFeatures;
-    validationLabels = valLabels;
-
-    const EPOCHS = 50;
-
-    // === Тренировка ===
-    await model.fit(trainFeatures, trainLabels, {
-      epochs: EPOCHS,
-      batchSize: 32,
-      validationData: [valFeatures, valLabels],
-      callbacks: {
-        onEpochEnd: async (epoch, logs) => {
-          statusDiv.innerHTML = `Epoch ${epoch + 1}/${EPOCHS} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
-
-          // Обновляем графики
-          lossChart.data.labels.push(epoch + 1);
-          lossChart.data.datasets[0].data.push(logs.loss);
-          lossChart.update();
-
-          accChart.data.labels.push(epoch + 1);
-          accChart.data.datasets[0].data.push(logs.acc);
-          accChart.update();
-
-          await tf.nextFrame(); // чтобы не замораживался интерфейс
-        }
-      }
-    });
-
-    statusDiv.innerHTML += "<p>✅ Training completed!</p>";
-
-    // Make predictions on validation set for evaluation
-    validationPredictions = model.predict(validationData);
-
-    // Enable next steps
-    document.getElementById("threshold-slider").disabled = false;
-    document.getElementById("predict-btn").disabled = false;
-
-    updateMetrics();
-  } catch (error) {
-    statusDiv.innerHTML = `Error during training: ${error.message}`;
-    console.error(error);
-  }
-}
-
-// === METRICS ===
-async function updateMetrics(){
-  const thr=parseFloat(byId('threshold-slider').value);
-  byId('threshold-value').textContent=thr.toFixed(2);
-  const yTrue=valLabels.arraySync(),yPred=validationPreds.arraySync().map(p=>p[0]);
   let tp=0,tn=0,fp=0,fn=0;
-  for(let i=0;i<yPred.length;i++){
-    const p=yPred[i]>=thr?1:0,a=yTrue[i];
-    if(p===1&&a===1)tp++;else if(p===0&&a===0)tn++;
-    else if(p===1&&a===0)fp++;else fn++;
+  for (let i=0;i<yPred.length;i++){
+    const p = yPred[i]>=thr?1:0, a = yTrue[i];
+    if (p===1&&a===1) tp++; else if (p===0&&a===0) tn++;
+    else if (p===1&&a===0) fp++; else fn++;
   }
-  const precision=tp/(tp+fp)||0,recall=tp/(tp+fn)||0;
-  const f1=2*(precision*recall)/(precision+recall)||0;
-  const acc=(tp+tn)/(tp+tn+fp+fn);
-  byId('confusion-matrix').innerHTML=
-    `<table><tr><th></th><th>Pred +</th><th>Pred -</th></tr>
-    <tr><th>Actual +</th><td>${tp}</td><td>${fn}</td></tr>
-    <tr><th>Actual -</th><td>${fp}</td><td>${tn}</td></tr></table>`;
-  byId('performance-metrics').innerHTML=
-    `<p>Accuracy: ${(acc*100).toFixed(2)}%</p>
+  const precision = tp/(tp+fp)||0, recall = tp/(tp+fn)||0;
+  const f1 = 2*(precision*recall)/(precision+recall)||0;
+  const acc = (tp+tn)/(tp+tn+fp+fn)||0;
+
+  byId('confusion-matrix').innerHTML =
+    `<h3>Confusion Matrix</h3>
+     <table>
+       <tr><th></th><th>Pred +</th><th>Pred -</th></tr>
+       <tr><th>Actual +</th><td>${tp}</td><td>${fn}</td></tr>
+       <tr><th>Actual -</th><td>${fp}</td><td>${tn}</td></tr>
+     </table>`;
+
+  byId('performance-metrics').innerHTML =
+    `<h3>Metrics</h3>
+     <p>Accuracy: ${(acc*100).toFixed(2)}%</p>
      <p>Precision: ${precision.toFixed(3)}</p>
      <p>Recall: ${recall.toFixed(3)}</p>
      <p>F1: ${f1.toFixed(3)}</p>`;
-  await plotROC(yTrue,yPred);
-}
-async function plotROC(yTrue,yPred){
-  const steps=50,data=[];
+
+  // ROC
+  const steps=100, pts=[];
   for(let t=0;t<=1;t+=1/steps){
-    let tp=0,fp=0,fn=0,tn=0;
+    let TP=0,FP=0,FN=0,TN=0;
     for(let i=0;i<yPred.length;i++){
-      const p=yPred[i]>=t?1:0,a=yTrue[i];
-      if(a===1&&p===1)tp++; if(a===0&&p===1)fp++;
-      if(a===1&&p===0)fn++; if(a===0&&p===0)tn++;
+      const p=yPred[i]>=t?1:0, a=yTrue[i];
+      if (a===1&&p===1) TP++; if (a===0&&p===1) FP++;
+      if (a===1&&p===0) FN++; if (a===0&&p===0) TN++;
     }
-    const tpr=tp/(tp+fn)||0,fpr=fp/(fp+tn)||0;
-    data.push({x:fpr,y:tpr});
+    const TPR = TP/(TP+FN)||0, FPR = FP/(FP+TN)||0;
+    pts.push({x:FPR, y:TPR});
   }
-  tfvis.render.linechart({name:'ROC Curve',tab:'Evaluation'},
-    {values:data,series:['ROC']},{xLabel:'FPR',yLabel:'TPR'});
-}
-
-// === PREDICT ON TEST ===
-async function predict(){
-  const {X}=preprocess(rawTest);
-  testPreds=model.predict(X).arraySync().map(a=>a[0]);
-  const res=rawTest.map((r,i)=>({
-    customerID:r.customerID,
-    Probability:testPreds[i].toFixed(4),
-    Predicted:testPreds[i]>=0.5?'Churn':'Stay'
-  }));
-  const html=headTable(res,10);
-  byId('prediction-output').innerHTML=html;
-  byId('export-btn').disabled=false;
-}
-
-// === EXPORT CSV ===
-function exportCSV(){
-  let csv='customerID,Probability,Prediction\n';
-  rawTest.forEach((r,i)=>{
-    csv+=`${r.customerID},${testPreds[i].toFixed(4)},${testPreds[i]>=0.5?'Churn':'Stay'}\n`;
+  // AUC by trapezoid
+  let auc=0; for(let i=1;i<pts.length;i++){ const dx=pts[i].x-pts[i-1].x; const h=(pts[i].y+pts[i-1].y)/2; auc += dx*h; }
+  // draw
+  const ctx = byId('rocChart').getContext('2d');
+  if (rocChart) rocChart.destroy();
+  rocChart = new Chart(ctx,{
+    type:'line',
+    data:{labels:pts.map(p=>p.x.toFixed(2)), datasets:[{label:`ROC (AUC=${auc.toFixed(3)})`, data:pts.map(p=>p.y), fill:false}]},
+    options:{maintainAspectRatio:false, plugins:{legend:{display:true}}, scales:{x:{title:{display:true,text:'FPR'}}, y:{title:{display:true,text:'TPR'},min:0,max:1}}}
   });
-  const blob=new Blob([csv],{type:'text/csv'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='predictions.csv';a.click();
+}
+byId('threshold-slider').addEventListener('input', updateMetrics);
+
+// --------- Predict & Export ---------
+function predictOnTest(){
+  if(!model||!prep.testX){ alert('Train the model first'); return; }
+  const thr = parseFloat(byId('threshold-slider').value||'0.5');
+  const probs = model.predict(prep.testX).arraySync().map(v=> Array.isArray(v)? v[0]:v);
+  const rows = probs.map((p,i)=>({customerID:prep.testIDs[i], prediction:(p>=thr?1:0), probability:p}));
+  const cols=['customerID','prediction','probability'];
+  let html = '<div class="scroll"><table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  rows.slice(0,20).forEach(r=>{
+    html += '<tr>'+cols.map(c=>`<td>${c==='probability'? r[c].toFixed(4): r[c]}</td>`).join('')+'</tr>';
+  });
+  html += '</tbody></table></div>';
+  byId('prediction-output').innerHTML = html;
+  byId('export-btn').disabled = false;
 }
 
-// === EVENTS ===
-byId('load-data-btn').addEventListener('click',loadData);
-byId('eda-btn').addEventListener('click',runEDA);
-byId('create-model-btn').addEventListener('click',createModel);
-byId('train-btn').addEventListener('click',trainModel);
-byId('predict-btn').addEventListener('click',predict);
-byId('export-btn').addEventListener('click',exportCSV);
+function exportCSV(){
+  if(!model||!prep.testX){ alert('Nothing to export'); return; }
+  const thr = parseFloat(byId('threshold-slider').value||'0.5');
+  const probs = model.predict(prep.testX).arraySync().map(v=> Array.isArray(v)? v[0]:v);
+  let csv='customerID,prediction,probability\n';
+  probs.forEach((p,i)=>{ csv+=`${prep.testIDs[i]},${p>=thr?1:0},${p.toFixed(6)}\n`; });
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='telco_churn_predictions.csv'; a.click();
+}
+
+// --------- Events ---------
+byId('load-data-btn').addEventListener('click', loadData);
+byId('eda-btn').addEventListener('click', runEDA);
+byId('create-model-btn').addEventListener('click', onCreateModel);
+byId('train-btn').addEventListener('click', onTrain);
+byId('predict-btn').addEventListener('click', predictOnTest);
+byId('export-btn').addEventListener('click', exportCSV);
