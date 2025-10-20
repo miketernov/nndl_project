@@ -91,7 +91,7 @@ function buildStackedChurnChart(rows, colName, ctx){
     },
     options:{
       maintainAspectRatio:false,
-      layout:{padding:{bottom:10,top:10}},
+      layout:{padding:{bottom:40,top:10,left:10,right:10}},
       plugins:{
         legend:{position:'top', labels:{color:'#e5e7eb', boxWidth:14}},
         title:{display:false}
@@ -154,7 +154,7 @@ function buildDualHistogram(rows, colName, ctx, bins = 20) {
     },
     options: {
       maintainAspectRatio: false,
-      layout: { padding: { bottom: 10, top: 10 } },
+      layout:{padding:{bottom:40,top:10,left:10,right:10}},
       plugins: {
         legend: { position: 'top', labels: { color: '#e5e7eb', boxWidth: 14 } },
         title: { display: false }
