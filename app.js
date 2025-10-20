@@ -254,26 +254,84 @@ function createModel(){
 }
 
 // === TRAIN MODEL ===
-async function trainModel(){
-  info('Training...');
-  const {X,y}=preprocess(rawTrain);
-  const split=Math.floor(X.shape[0]*0.8);
-  const trainX=X.slice(0,split),trainY=y.slice(0,split);
-  valData=X.slice(split),valLabels=y.slice(split);
-  await model.fit(trainX,trainY,{
-    epochs:20,batchSize:32,validationData:[valData,valLabels],
-    callbacks:tfvis.show.fitCallbacks(
-      {name:'Training Performance',tab:'Training'},
-      ['loss','acc','val_loss','val_acc'],
-      {callbacks:['onEpochEnd']}
-    )
+async function trainModel() {
+  if (!model || !preprocessedTrainData) {
+    alert("Please create model first.");
+    return;
+  }
+
+  const statusDiv = document.getElementById("training-status");
+  statusDiv.innerHTML = "Training model...";
+
+  const lossCtx = document.getElementById("lossChart").getContext("2d");
+  const accCtx = document.getElementById("accuracyChart").getContext("2d");
+
+  // Создаём графики заранее
+  const lossChart = new Chart(lossCtx, {
+    type: "line",
+    data: { labels: [], datasets: [{ label: "Loss", data: [], borderColor: "#ef4444", tension: 0.2 }] },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
   });
-  info('✅ Training complete');
-  validationPreds=model.predict(valData);
-  byId('threshold-slider').disabled=false;
-  byId('threshold-slider').addEventListener('input',updateMetrics);
-  updateMetrics();
-  byId('predict-btn').disabled=false;
+
+  const accChart = new Chart(accCtx, {
+    type: "line",
+    data: { labels: [], datasets: [{ label: "Accuracy", data: [], borderColor: "#22c55e", tension: 0.2 }] },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1 } } }
+  });
+
+  try {
+    // Split training data into train/validation (80/20)
+    const splitIndex = Math.floor(preprocessedTrainData.features.shape[0] * 0.8);
+
+    const trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
+    const trainLabels = preprocessedTrainData.labels.slice(0, splitIndex);
+
+    const valFeatures = preprocessedTrainData.features.slice(splitIndex);
+    const valLabels = preprocessedTrainData.labels.slice(splitIndex);
+
+    // Store validation data for evaluation
+    validationData = valFeatures;
+    validationLabels = valLabels;
+
+    const EPOCHS = 50;
+
+    // === Тренировка ===
+    await model.fit(trainFeatures, trainLabels, {
+      epochs: EPOCHS,
+      batchSize: 32,
+      validationData: [valFeatures, valLabels],
+      callbacks: {
+        onEpochEnd: async (epoch, logs) => {
+          statusDiv.innerHTML = `Epoch ${epoch + 1}/${EPOCHS} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
+
+          // Обновляем графики
+          lossChart.data.labels.push(epoch + 1);
+          lossChart.data.datasets[0].data.push(logs.loss);
+          lossChart.update();
+
+          accChart.data.labels.push(epoch + 1);
+          accChart.data.datasets[0].data.push(logs.acc);
+          accChart.update();
+
+          await tf.nextFrame(); // чтобы не замораживался интерфейс
+        }
+      }
+    });
+
+    statusDiv.innerHTML += "<p>✅ Training completed!</p>";
+
+    // Make predictions on validation set for evaluation
+    validationPredictions = model.predict(validationData);
+
+    // Enable next steps
+    document.getElementById("threshold-slider").disabled = false;
+    document.getElementById("predict-btn").disabled = false;
+
+    updateMetrics();
+  } catch (error) {
+    statusDiv.innerHTML = `Error during training: ${error.message}`;
+    console.error(error);
+  }
 }
 
 // === METRICS ===
