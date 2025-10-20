@@ -142,70 +142,57 @@ function tfvisBar(name, pairs){
 byId('load-data-btn').addEventListener('click', loadData);
 byId('btnClear').addEventListener('click', ()=> location.reload());
 
-async function loadData(){
-  targetCol = byId('targetCol').value || 'Churn';
-  posLabel  = byId('positiveLabel').value || 'Yes';
-  const testRatio = parseFloat(byId('testSize').value || '0.2');
-
+async function loadData() {
   const trainFile = byId('train-file').files[0];
-  const testFile  = byId('test-file').files[0];
-  if(!trainFile){ alert('Upload train.csv or a single CSV.'); return; }
+  const testFile = byId('test-file').files[0];
 
-  info('Loading CSV…');
- const trainText = await readFile(trainFile);
- let trainArr = Papa.parse(trainText, {
-  header: true,
-  dynamicTyping: false,
-  skipEmptyLines: true
- }).data.map(normalizeTelcoRow);
-
-  if(testFile){
-  const testText = await readFile(testFile);
-   rawTest = Papa.parse(testText, {
-  header: true,
-  dynamicTyping: false,
-  skipEmptyLines: true
-   }).data.map(normalizeTelcoRow);
-    rawTrain = trainArr;
-  } else {
-    // single CSV → shuffle & split
-    trainArr = trainArr.filter(r=> r[targetCol]!==null && r[targetCol]!==undefined);
-    const shuffled = trainArr.sort(()=> Math.random()-0.5);
-    const cut = Math.floor(shuffled.length*(1-testRatio));
-    rawTrain = shuffled.slice(0,cut);
-    rawTest  = shuffled.slice(cut).map(r=>{ const { [targetCol]:_, ...rest } = r; return rest; });
+  if (!trainFile || !testFile) {
+    alert('Please upload BOTH train.csv and test.csv files.');
+    return;
   }
 
-  // Preview
-  byId('data-preview').innerHTML = headTable(rawTrain, 10);
+  info('Loading CSV files…');
 
-  // Basic stats
-  const nTrain = rawTrain.length, nCols = Object.keys(rawTrain[0]||{}).length;
-  const posCnt = rawTrain.filter(r=> r[targetCol]===1).length;
-  const churnRate = (posCnt/nTrain*100).toFixed(2);
-  byId('shapeTrain').textContent = `train: ${nTrain}×${nCols}`;
-  byId('shapeTest').textContent  = `test: ${rawTest.length}`;
-  byId('churnRate').textContent  = `churn: ${churnRate}%`;
+  try {
+    // === TRAIN ===
+    const trainText = await readFile(trainFile);
+    const trainParsed = Papa.parse(trainText, {
+      header: true,
+      dynamicTyping: false,
+      skipEmptyLines: true
+    });
+    rawTrain = trainParsed.data.map(normalizeTelcoRow);
 
-  // Missing per col
-  const miss = Object.keys(rawTrain[0]).map(c=>{
-    const m = rawTrain.filter(r=> r[c]===null||r[c]===undefined||r[c]==='').length;
-    return [c, (m/nTrain*100).toFixed(1)+'%'];
-  });
-  console.table(Object.fromEntries(miss));
+    // === TEST ===
+    const testText = await readFile(testFile);
+    const testParsed = Papa.parse(testText, {
+      header: true,
+      dynamicTyping: false,
+      skipEmptyLines: true
+    });
+    rawTest = testParsed.data.map(normalizeTelcoRow);
 
-  // Correlation (numeric)
-  renderCorrTable(rawTrain);
+    // === EDA summary ===
+    const nTrain = rawTrain.length;
+    const nCols = Object.keys(rawTrain[0] || {}).length;
+    const posCnt = rawTrain.filter(r => r.Churn === 1).length;
+    const churnRate = (posCnt / nTrain * 100).toFixed(2);
 
-  // Charts: class balance & churn by Contract
-  tfvisBar('Class Balance (Churn)', [[posLabel, posCnt],[`Not ${posLabel}`, nTrain-posCnt]]);
-  const byContract = {};
-  rawTrain.forEach(r=>{ const k=r.Contract||'NA'; byContract[k]=(byContract[k]||{pos:0,tot:0}); byContract[k].tot++; if(r[targetCol]===1) byContract[k].pos++; });
-  const pairs = Object.entries(byContract).map(([k,v])=>[k, (v.pos/v.tot*100).toFixed(1)]);
-  tfvisBar('Churn rate by Contract (%)', pairs);
+    byId('data-status').innerHTML = `✅ Loaded: Train ${nTrain} rows × ${nCols} cols, Test ${rawTest.length} rows`;
+    byId('shapeTrain').textContent = `train: ${nTrain}`;
+    byId('shapeTest').textContent = `test: ${rawTest.length}`;
+    byId('churnRate').textContent = `churn: ${churnRate}%`;
 
-  // Enable model creation
-  byId('create-model-btn').disabled = false;
+    // Show preview
+    byId('data-preview').innerHTML = headTable(rawTrain, 10);
+
+    // Enable the next button
+    byId('create-model-btn').disabled = false;
+
+  } catch (err) {
+    console.error(err);
+    byId('data-status').innerHTML = `❌ Error loading data: ${err.message}`;
+  }
 }
 
 // =============== Preprocess ===============
