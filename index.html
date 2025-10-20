@@ -2,49 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Telco Customer Churn — TensorFlow.js</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #0f172a;
-      color: #e5e7eb;
-      margin: 0;
-      padding: 20px;
-    }
-    h1, h2 { color: #38bdf8; }
-    section {
-      background: #1e293b;
-      border-radius: 10px;
-      padding: 20px;
-      margin-bottom: 20px;
-    }
-    button {
-      background-color: #0ea5e9;
-      color: white;
-      border: none;
-      padding: 10px 15px;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-    button:hover { background-color: #0284c7; }
-    button:disabled { background-color: #334155; cursor: not-allowed; }
-    input[type="file"] { margin: 10px 0; width: 100%; }
-    table {
-      border-collapse: collapse; width: 100%; margin-top: 10px;
-    }
-    th, td {
-      border: 1px solid #334155;
-      padding: 6px 8px; text-align: left; white-space: nowrap;
-    }
-    th { background-color: #0f172a; }
-    .small { font-size: 13px; color: #9ca3af; }
+    :root { --bg:#0f172a; --card:#1e293b; --text:#e5e7eb; --muted:#9ca3af; --border:#334155; --accent:#38bdf8; }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:Arial, sans-serif;padding:20px;}
+    h1,h2{color:var(--accent);margin:0 0 12px}
+    section{background:var(--card);border-radius:12px;padding:18px;margin:16px 0}
+    button{background:#0ea5e9;color:#fff;border:none;border-radius:8px;padding:10px 14px;cursor:pointer}
+    button:hover{background:#0284c7} button:disabled{background:#334155;cursor:not-allowed}
+    input[type="file"]{margin:8px 0;width:100%}
+    .small{color:var(--muted);font-size:13px}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid var(--border);padding:6px 8px;white-space:nowrap;text-align:left}
+    th{background:#0f172a}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .mt20{margin-top:20px}
+    .scroll{overflow:auto;max-height:380px}
+    .chartbox{max-width:540px;height:260px}
   </style>
 
+  <!-- libs -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.13.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script defer src="app.js"></script>
 </head>
 <body>
@@ -61,37 +44,41 @@
 
   <section>
     <h2>2. EDA (Exploratory Data Analysis)</h2>
-    <button id="eda-btn">Run EDA</button>
+    <button id="eda-btn" disabled>Run EDA</button>
     <div id="data-preview"></div>
   </section>
 
-<section>
-  <h2>3. Model Creation & Training</h2>
-  <button id="create-model-btn" disabled>Create Model</button>
-  <button id="train-btn" disabled>Train Model</button>
-  <div id="training-status" class="small"></div>
+  <section>
+    <h2>3. Model Creation & Training</h2>
+    <button id="create-model-btn" disabled>Create Model</button>
+    <button id="train-btn" disabled>Train Model</button>
+    <div id="training-status" class="small"></div>
 
-  <!-- 👇 ВОТ ЭТО добавляет графики обучения прямо под секцией -->
-  <div id="training-charts" style="margin-top:20px;">
-    <canvas id="lossChart" width="500" height="250"></canvas>
-    <canvas id="accuracyChart" width="500" height="250" style="margin-top:20px;"></canvas>
-  </div>
-</section>
-
+    <!-- charts under block -->
+    <div id="training-charts" class="mt20">
+      <div class="chartbox"><canvas id="lossChart"></canvas></div>
+      <div class="chartbox mt20"><canvas id="accuracyChart"></canvas></div>
+    </div>
+  </section>
 
   <section>
     <h2>4. Evaluation & Metrics</h2>
-    <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.5" disabled>
-    <span id="threshold-value">0.50</span>
-    <div id="confusion-matrix"></div>
-    <div id="performance-metrics"></div>
+    <div class="small">Threshold: 
+      <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.5" disabled>
+      <span id="threshold-value">0.50</span>
+    </div>
+    <div class="grid2 mt20">
+      <div id="confusion-matrix"></div>
+      <div id="performance-metrics"></div>
+    </div>
+    <div class="chartbox mt20"><canvas id="rocChart"></canvas></div>
   </section>
 
   <section>
     <h2>5. Predictions</h2>
     <button id="predict-btn" disabled>Predict on Test</button>
     <button id="export-btn" disabled>Export CSV</button>
-    <div id="prediction-output"></div>
+    <div id="prediction-output" class="mt20"></div>
   </section>
 </body>
 </html>
