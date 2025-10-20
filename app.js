@@ -91,14 +91,28 @@ function buildStackedChurnChart(rows, colName, ctx){
     },
     options:{
       maintainAspectRatio:false,
-      plugins:{legend:{position:'top'}},
+      layout:{padding:{bottom:10,top:10}},
+      plugins:{
+        legend:{position:'top', labels:{color:'#e5e7eb', boxWidth:14}},
+        title:{display:false}
+      },
       scales:{
-        x:{stacked:true},
-        y:{stacked:true, beginAtZero:true, ticks:{callback:(v)=> v+'%'}}
+        x:{
+          stacked:true,
+          ticks:{color:'#e5e7eb', maxRotation:0, minRotation:0},
+          grid:{display:false}
+        },
+        y:{
+          stacked:true,
+          beginAtZero:true,
+          ticks:{color:'#e5e7eb', callback:v=>v+'%'},
+          grid:{color:'rgba(148,163,184,0.15)'}
+        }
       }
     }
   });
 }
+
 
 // Две гистограммы (Yes/No) поверх друг друга для числового признака
 function buildDualHistogram(rows, colName, ctx, bins=20){
@@ -138,8 +152,28 @@ function buildDualHistogram(rows, colName, ctx, bins=20){
     },
     options:{
       maintainAspectRatio:false,
-      plugins:{legend:{position:'top'}},
-      scales:{y:{beginAtZero:true}}
+      layout:{padding:{bottom:10,top:10}},
+      plugins:{
+        legend:{position:'top', labels:{color:'#e5e7eb', boxWidth:14}},
+        title:{display:false}
+      },
+      scales:{
+        x:{
+          ticks:{
+            color:'#e5e7eb',
+            autoSkip:true,
+            maxRotation:45,
+            minRotation:45,
+            callback:(v,i,vals)=> i%2===0 ? this.getLabelForValue(v) : '' // сокращаем подписи
+          },
+          grid:{display:false}
+        },
+        y:{
+          beginAtZero:true,
+          ticks:{color:'#e5e7eb'},
+          grid:{color:'rgba(148,163,184,0.15)'}
+        }
+      }
     }
   });
 }
